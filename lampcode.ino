@@ -1,101 +1,94 @@
-#include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
-#include <WiFiClient.h>
-#include <Arduino_JSON.h>
+#include <Arduino.h>
+#if defined(ESP8266)
+  #include <ESP8266WiFi.h>
+//#elif defined(ESP32)
+//  #include <WiFi.h>
+#endif
+#include <Firebase_ESP_Client.h>
+#include "addons/TokenHelper.h"
+#include "addons/RTDBHelper.h"
 
-const char* ssid = "";
-const char* password = "";
+#define WIFI_SSID "" // BT-WCCKW2
+#define WIFI_PASSWORD "" // p9R7fuNRDH3nTa
 
-//Your Domain name with URL path or IP address with path
-const char* serverName = "https://api.jsonbin.io/b/61cdf3cbea3bf568213a4683";
+#define API_KEY "AIzaSyCSk4EyeoJkGQPRAqaoY3PT7i_HPFagUXk"
+#define DATABASE_URL "https://test2-694b4-default-rtdb.firebaseio.com/" 
 
-// the following variables are unsigned longs because the time, measured in
-// milliseconds, will quickly become a bigger number than can be stored in an int.
-unsigned long lastTime = 0;
-// Timer set to 10 minutes (600000)
-//unsigned long timerDelay = 600000;
-// Set timer to 5 seconds (5000)
-unsigned long timerDelay = 5000;
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
 
-String sensorReadings;
-float sensorReadingsArr[3];
+unsigned long sendDataPrevMillis = 0;
+int count = 0;
+bool signupOK = false;
 
-void setup() {
+/* variable setup */
+int currcolor = -1;
+int def = 0;
+
+
+void setup(){
   Serial.begin(115200);
-
-  WiFi.begin(ssid, password);
-  Serial.println("Connecting");
-  while(WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  pinMode(16, OUTPUT);
+  pinMode(14, OUTPUT);
+  pinMode(12, OUTPUT);
+  digitalWrite(16,LOW);
+  digitalWrite(14,LOW);
+  digitalWrite(12,LOW);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED){
+    Serial.println("Connecting...");
   }
-  Serial.println("");
-  Serial.print("Connected to WiFi network with IP Address: ");
+  Serial.print("Connected with IP: ");
   Serial.println(WiFi.localIP());
- 
-  Serial.println("Timer set to 5 seconds (timerDelay variable), it will take 5 seconds before publishing the first reading.");
+  Serial.println();
+  config.api_key = API_KEY;
+  config.database_url = DATABASE_URL;
+  if (Firebase.signUp(&config, &auth, "", "")){
+    Serial.println("Firebase sign up complete");
+    signupOK = true;
+  }
+  else{
+    Serial.printf("%s\n", config.signer.signupError.message.c_str());
+  }
+  config.token_status_callback = tokenStatusCallback; //see addons/TokenHelper.h
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
 }
 
-void loop() {
-  // Send an HTTP POST request depending on timerDelay
-  if ((millis() - lastTime) > timerDelay) {
-    //Check WiFi connection status
-    if(WiFi.status()== WL_CONNECTED){
-              
-      sensorReadings = httpGETRequest(serverName);
-      Serial.println(sensorReadings);
-      JSONVar myObject = JSON.parse(sensorReadings);
-  
-      if (JSON.typeof(myObject) == "undefined") {
-        Serial.println("Parsing input failed!");
-        return;
+void loop(){
+  if (Firebase.ready() && signupOK && (millis() - sendDataPrevMillis > 120000 || sendDataPrevMillis == 0)){
+    sendDataPrevMillis = millis();
+    if (Firebase.RTDB.getInt(&fbdo, "/test/color")) {
+      if (fbdo.dataType() == "int") {
+        int v = fbdo.intData();
+        //String databaseval = fbdo.stringData();
+        if(v == 0){
+          digitalWrite(14,HIGH);
+          digitalWrite(16,LOW);
+          digitalWrite(12,LOW);
+        }
+        else if(v == 1){
+          digitalWrite(12,HIGH);
+          digitalWrite(14,LOW);
+          digitalWrite(16,LOW);
+          // set red light to high
+        }
+        else if(v == 2){
+          digitalWrite(16,HIGH);
+          digitalWrite(14,LOW);
+          digitalWrite(12,LOW);
+        }
+        else if(v == 3){
+          digitalWrite(16,LOW);
+          digitalWrite(14,LOW);
+          digitalWrite(12,LOW);
+        }
       }
-    
-      Serial.print("JSON object = ");
-      Serial.println(myObject);
-    
-      JSONVar keys = myObject.keys();
-    
-      for (int i = 0; i < keys.length(); i++) {
-        JSONVar value = myObject[keys[i]];
-        Serial.print(keys[i]);
-        Serial.print(" = ");
-        Serial.println(value);
-        sensorReadingsArr[i] = double(value);
-      }
-      Serial.print("1 = ");
-      Serial.println(sensorReadingsArr[0]);
-      Serial.print("2 = ");
-      Serial.println(sensorReadingsArr[1]);
-      Serial.print("3 = ");
-      Serial.println(sensorReadingsArr[2]);
     }
     else {
-      Serial.println("WiFi Disconnected");
+      Serial.println(fbdo.errorReason());
     }
-    lastTime = millis();
   }
-}
-
-String httpGETRequest(const char* serverName) {
-  WiFiClient client;
-  HTTPClient http;
-  http.begin(client, serverName);
-  int httpResponseCode = http.GET();
-  
-  String payload = "{}"; 
-  
-  if (httpResponseCode>0) {
-    Serial.print("HTTP Response code: ");
-    Serial.println(httpResponseCode);
-    payload = http.getString();
-  }
-  else {
-    Serial.print("Error code: ");
-    Serial.println(httpResponseCode);
-  }
-  // Free resources
-  http.end();
-
-  return payload;
 }
