@@ -1,1 +1,1 @@
-''' Friend Lamps
+Friend Lamps
